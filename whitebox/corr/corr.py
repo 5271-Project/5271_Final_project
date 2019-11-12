@@ -11,6 +11,7 @@ import tensorflow.keras as keras
 from tensorflow.keras import Model
 from tensorflow.keras import backend as K
 from tensorflow.keras.callbacks import ModelCheckpoint
+from PIL import ImageOps, Image
 
 from data import load_data
 from resnet import ResNet
@@ -23,6 +24,15 @@ res_model_save_path = os.path.join(model_save_dir, res_model_save_name)
 
 cor_level = 1
 extract_length = 32 * 32 * 3 * 1
+
+def normalize(x):
+  shape = x.shape
+  x = x.flatten()
+  x_min = np.min(x)
+  x_max = np.max(x)
+  x = (x - x_min) / (x_max - x_min)
+  return x.reshape(shape)
+  
 
 def extract_params(extract_length, total_params):
   rest_length = extract_length
@@ -126,7 +136,8 @@ class CorrRes:
       # Used loss - abs(co) before
       # return loss + loss_co * cor_level
 
-      self.loss_value = loss + loss_co * cor_level
+      #self.loss_value = loss + loss_co * cor_level
+      self.loss_value = loss - abs(co) * cor_level
       return self.loss_value
     
     return loss_function
@@ -146,7 +157,6 @@ class CorrRes:
     self.model.load_weights(model_path)
     self.total_weights = K.variable(
             extract_params(self.extract_length, self.model.get_weights()))
-    pass
 
   def evaluate(self):
     result = self.model.evaluate(self.test_data[0], self.test_data[1])
@@ -156,18 +166,47 @@ class CorrRes:
   def attack_evaluate(self):
     img_name = 'test.png'
     img_path = os.path.join(img_dir, img_name)
+    param_img_name = 'param_test.png'
+    param_img_path = os.path.join(img_dir, param_img_name)
 
-    data = self.extracted_data.reshape(32, 32, 3)
+    data_in_params = K.get_value(self.total_weights)
+    img_from_params = normalize(data_in_params)
+    img_from_params = (img_from_params * 255).astype(np.uint8)
+    img_from_params = np.asarray(ImageOps.invert(Image.fromarray(img_from_params.reshape(32, 32, 3)))).flatten()
+    #img_from_params = rgb_to_grayscale(img_from_params.reshape(32, 32, 3)).flatten().astype(np.uint8)
+    img_from_params = rgb_to_grayscale(img_from_params.reshape(32, 32, 3)).flatten()
 
-    cv2.imwrite(img_path, data)
+    #self.extracted_data = rgb_to_grayscale(self.extracted_data.reshape(32,32,3)).flatten().astype(np.uint8)
+    self.extracted_data = rgb_to_grayscale(self.extracted_data.reshape(32,32,3)).flatten()
 
-    pass
+    K.print_tensor(img_from_params, "pa_before=")
+    K.print_tensor(self.extracted_data, "data_before=")
+
+    #img_from_params = rgb_to_grayscale(img_from_params.reshape(32, 32, 3)).flatten().astype(np.uint16)
+    #self.extracted_data = rgb_to_grayscale(self.extracted_data.reshape(32,32,3)).flatten().astype(np.uint16)
+    K.print_tensor(img_from_params, "pa_after=")
+    K.print_tensor(self.extracted_data, "data_after=")
+    
+    difference = self.extracted_data - img_from_params
+    print("mean:", np.mean(np.abs(difference)))
+    print("var:", np.var(np.abs(difference)))
+
+    img_from_params = img_from_params.reshape(32, 32, 3)
+    img_from_dataset = self.extracted_data.reshape(32, 32, 3)
+    cv2.imwrite(param_img_path, img_from_params)
+    cv2.imwrite(img_path, img_from_dataset)
+
+def rgb_to_grayscale(images):
+    return images[..., :3] * [0.299, 0.587, 0.114]
 
 if __name__ == '__main__':
   if not os.path.exists(img_dir):
     os.mkdir(img_dir)
 
-  corr_res = CorrRes((32, 32, 3), 10, 1, 128)
-  # corr_res.train()
+  corr_res = CorrRes((32, 32, 3), 10, 20, 256)
+  #corr_res.train()
+  #corr_res.evaluate()
   corr_res.load(res_model_save_path) 
+  #corr_res.train()
+  #corr_res.evaluate()
   corr_res.attack_evaluate()
