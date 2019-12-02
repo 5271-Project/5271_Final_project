@@ -19,11 +19,15 @@ from resnet import ResNet
 img_dir = os.path.join(os.getcwd(), 'test_imgs')
 
 model_save_dir = os.path.join(os.getcwd(), 'saved_models')
-res_model_save_name = 'saved_res_corr_model.hdf5'
+#res_model_save_name = 'saved_res_corr_model.hdf5'
+#res_model_save_name = 'saved_only_corr_model.hdf5'
+res_model_save_name = 'no_attack_resnet_cifar10.hdf5'
 res_model_save_path = os.path.join(model_save_dir, res_model_save_name)
 
 cor_level = 1
-extract_length = 32 * 32 * 3 * 1
+#extract_length = 32 * 32 * 3 * 1
+extract_shape = (200, 32, 32, 3)
+#extract_length = 32 * 32 * 200
 
 def normalize(x):
   shape = x.shape
@@ -54,8 +58,9 @@ class Callbacks(keras.callbacks.Callback):
   def __init__(self, _total_weights):
     self.total_weights = _total_weights 
   def on_batch_begin(self, batch, logs):
+    sum_length = 200 * 32 * 32
     K.set_value(self.total_weights, 
-            extract_params(extract_length, self.model.get_weights()))
+            extract_params(sum_length, self.model.get_weights()))
   # def on_batch_end(self, batch, logs):
   #   print(logs['loss'])
 
@@ -74,6 +79,7 @@ class CorrRes:
           epochs, 
           batch_size,
           extract_length = 32 * 32 * 3 * 1,
+          extract_shape = (1, 32, 32, 3),
           optimizer = 'adam',
           dataset = 'cifar'):
 
@@ -83,6 +89,7 @@ class CorrRes:
     self.epochs = epochs
     self.batch_size = batch_size
     self.extract_length = extract_length
+    self.extract_shape = extract_shape
     self.optimizer = optimizer
     self.dataset = dataset
 
@@ -92,7 +99,10 @@ class CorrRes:
     self.train_data, self.test_data = load_data(
             name = self.dataset, classes = self.classes)
 
-    self.extracted_data = self.train_data[0].flatten()[:self.extract_length]
+    # Original design
+    #self.extracted_data = self.train_data[0].flatten()[:self.extract_length]
+    self.extracted_data = self.train_data[0].flatten()[:self.extract_length * 3]
+    self.extracted_data = rgb_to_grayscale(self.extracted_data.reshape(self.extract_shape)).flatten()
     #self.total_weights = self.model.get_weights()
     self.total_weights = K.variable(
             extract_params(self.extract_length, self.model.get_weights()))
@@ -103,11 +113,13 @@ class CorrRes:
     self.model = ResNet(
       input_shape = self.input_shape, 
       classes = self.classes)
+
     return self.model
 
   def compile_model(self):
     self.model.compile(optimizer = self.optimizer,
-                  loss = self.loss(),
+                  #loss = self.loss(),
+                  loss = keras.losses.categorical_crossentropy,
                   metrics = ['accuracy'])
     return self.model
 
@@ -131,13 +143,18 @@ class CorrRes:
       # K.print_tensor(loss_co, message="data=")
 
       loss = keras.losses.categorical_crossentropy(y_true, y_pred)
+      #K.print_tensor(loss, "loss=")
+      #K.print_tensor(loss_co, "loss_co=")
       # K.print_tensor(loss, message="loss=")
       # return K.mean(K.abs(y_true - y_pred))
       # Used loss - abs(co) before
       # return loss + loss_co * cor_level
 
       #self.loss_value = loss + loss_co * cor_level
-      self.loss_value = loss - abs(co) * cor_level
+      self.loss_value = loss
+      #self.loss_value = loss - loss_co * cor_level
+      #self.loss_value = loss - abs(co) * cor_level
+      #self.loss_value = loss_co * cor_level
       return self.loss_value
     
     return loss_function
@@ -164,6 +181,20 @@ class CorrRes:
     self.accuracy = result[1]
 
   def attack_evaluate(self):
+    params = K.cast(self.total_weights, dtype='float32')
+    target_data = K.cast(self.extracted_data, dtype='float32')
+    params_mean = K.mean(params)
+    target_mean = K.mean(target_data)
+    params_d = params - params_mean
+    target_d = target_data - target_mean
+
+    num = K.sum((params_d) * (target_d))
+    den = K.sqrt(K.sum(K.square(params_d)) * K.sum(K.square(target_d)))
+    co = num / den
+    print(params)
+    print("Corr: ", co)
+    #loss_co = 1 - abs(co)
+
     img_name = 'test.png'
     img_path = os.path.join(img_dir, img_name)
     param_img_name = 'param_test.png'
@@ -171,13 +202,14 @@ class CorrRes:
 
     data_in_params = K.get_value(self.total_weights)
     img_from_params = normalize(data_in_params)
-    img_from_params = (img_from_params * 255).astype(np.uint8)
-    img_from_params = np.asarray(ImageOps.invert(Image.fromarray(img_from_params.reshape(32, 32, 3)))).flatten()
+    #img_from_params = (img_from_params * 255).astype(np.uint8)
+    img_from_params = (img_from_params * 255)
+    #img_from_params = np.asarray(ImageOps.invert(Image.fromarray(img_from_params.reshape(32, 32, 3)))).flatten()
     #img_from_params = rgb_to_grayscale(img_from_params.reshape(32, 32, 3)).flatten().astype(np.uint8)
-    img_from_params = rgb_to_grayscale(img_from_params.reshape(32, 32, 3)).flatten()
+    #img_from_params = rgb_to_grayscale(img_from_params.reshape(32, 32, 3)).flatten()
 
     #self.extracted_data = rgb_to_grayscale(self.extracted_data.reshape(32,32,3)).flatten().astype(np.uint8)
-    self.extracted_data = rgb_to_grayscale(self.extracted_data.reshape(32,32,3)).flatten()
+    #self.extracted_data = rgb_to_grayscale(self.extracted_data.reshape(32,32,3)).flatten()
 
     K.print_tensor(img_from_params, "pa_before=")
     K.print_tensor(self.extracted_data, "data_before=")
@@ -191,22 +223,33 @@ class CorrRes:
     print("mean:", np.mean(np.abs(difference)))
     print("var:", np.var(np.abs(difference)))
 
-    img_from_params = img_from_params.reshape(32, 32, 3)
-    img_from_dataset = self.extracted_data.reshape(32, 32, 3)
+    print("mean_pa, var_pa", np.mean(img_from_params), np.var(img_from_params))
+    print("mean, var", np.mean(self.extracted_data), np.var(self.extracted_data))
+
+    #img_from_params = img_from_params.reshape(32, 32, 3)
+    #img_from_dataset = self.extracted_data.reshape(32, 32, 3)
+    img_from_params = img_from_params.reshape(32, 32)
+    img_from_dataset = self.extracted_data.reshape(32, 32)
     cv2.imwrite(param_img_path, img_from_params)
     cv2.imwrite(img_path, img_from_dataset)
 
 def rgb_to_grayscale(images):
-    return images[..., :3] * [0.299, 0.587, 0.114]
+    #return images[..., :3] * [0.299, 0.587, 0.114]
+    return np.dot(images[..., :3], [0.299, 0.587, 0.114])
 
 if __name__ == '__main__':
   if not os.path.exists(img_dir):
     os.mkdir(img_dir)
 
-  corr_res = CorrRes((32, 32, 3), 10, 20, 256)
+  #corr_res = CorrRes((32, 32, 3), 10, 30, 256, extract_length)
+  sum_length = 1
+  for dim in extract_shape:
+    sum_length *= dim
+  sum_length /= 3
+  corr_res = CorrRes((32, 32, 3), 10, 20, 256, int(sum_length), extract_shape)
   #corr_res.train()
   #corr_res.evaluate()
   corr_res.load(res_model_save_path) 
-  #corr_res.train()
+  corr_res.train()
   #corr_res.evaluate()
-  corr_res.attack_evaluate()
+  #corr_res.attack_evaluate()
