@@ -11,6 +11,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import layers
+from tensorflow.keras.utils import Progbar
 from PIL import Image
 from matplotlib import pyplot as plt
 
@@ -38,6 +39,8 @@ def gray(images):
 if __name__ == '__main__':
   if not os.path.exists(img_dir):
     os.mkdir(img_dir)
+  if not os.path.exists(model_save_dir):
+    os.mkdir(model_save_dir)
 
   (x_train, y_train), (x_test, y_test) = keras.datasets.cifar10.load_data()
 
@@ -50,13 +53,16 @@ if __name__ == '__main__':
       if label not in l:
         l.append(label)
     return len(l)
+  num_of_classes_val = num_of_classes(y_train, y_test)
+  y_train = keras.utils.to_categorical(y_train, num_classes=num_of_classes_val)
+  y_test = keras.utils.to_categorical(y_test, num_classes=num_of_classes_val)
 
   res_model = ResNet(
     input_shape = x_train.shape[1:],
-    classes = num_of_classes(y_train, y_test))
+    classes = num_of_classes_val)
   res_optimizer = keras.optimizers.Adam(learning_rate=1e-3)
   res_lossfn = keras.losses.CategoricalCrossentropy()
-  res_acc = keras.metrics.Accuracy()
+  res_acc = keras.metrics.CategoricalAccuracy()
   #res_model.summary()
 
   shadow_input_dim = 1000
@@ -90,33 +96,43 @@ if __name__ == '__main__':
   res_train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
   shadow_train_dataset = tf.data.Dataset.from_tensor_slices((shadow_x_train, shadow_y_train))
   total_shadow_epoch = 0
+
+  run_shadow = False
   for res_epoch in range(res_epochs):
+    res_progbar = Progbar(x_train.shape[0])
+    res_progbar.update(0, values=[('loss', 0.0), ('acc', 0.0)])
     batched_res_train_dataset = res_train_dataset.shuffle(buffer_size=1024).batch(res_batch_size)
 
     for step, (x_batch_train, y_batch_train) in enumerate(batched_res_train_dataset):
       x_batch_train = normalize(x_batch_train)
       #x_batch_train = tf.cast(x_batch_train, dtype='float32') 
-      #with tf.GradientTape() as tape:
-      #  res_logits = res_model(x_batch_train) 
-      #  res_loss_val = res_lossfn(y_batch_train, res_logits)
-      #  res_grads = tape.gradient(res_loss_val, res_model.trainable_weights)
-      #  res_optimizer.apply_gradients(zip(res_grads, res_model.trainable_weights))
-      #  if step % 10 == 0:
-      #    print('Training loss at epoch %s step %s is %s' 
-      #      % (res_epoch, step, float(res_loss_val)))
+      with tf.GradientTape() as tape:
+        res_logits = res_model(x_batch_train) 
+        res_acc.update_state(y_batch_train, res_logits)
+        res_acc_val = res_acc.result().numpy()
+        res_loss_val = res_lossfn(y_batch_train, res_logits)
+        # print(res_loss_val, res_acc_val)
+        res_grads = tape.gradient(res_loss_val, res_model.trainable_weights)
+        res_optimizer.apply_gradients(zip(res_grads, res_model.trainable_weights))
+        # if step % 10 == 0:
+        #   print('Training loss at epoch %s step %s is %s' 
+        #     % (res_epoch, step, float(res_loss_val)))
+      res_progbar.update((step+1)*res_batch_size, values=[('loss', res_loss_val), ('acc', res_acc_val)])
+    res_model.save(res_model_save_path)
 
-    for shadow_epoch in range(shadow_epochs_in_res_epoch):
-      batched_shadow_train_dataset = shadow_train_dataset.shuffle(buffer_size=1024).batch(shadow_batch_size)
-      shadow_loss_val = 0.0
+    if run_shadow:
+      for shadow_epoch in range(shadow_epochs_in_res_epoch):
+        batched_shadow_train_dataset = shadow_train_dataset.shuffle(buffer_size=1024).batch(shadow_batch_size)
+        shadow_loss_val = 0.0
 
-      for step, (x_batch_train, y_batch_train) in enumerate(batched_shadow_train_dataset):
-        #print(y_batch_train.shape)
-        with tf.GradientTape() as tape:
-          shadow_logits = shadow_model(x_batch_train)
-          shadow_loss_val = shadow_lossfn(y_batch_train, shadow_logits)
-          shadow_grads = tape.gradient(shadow_loss_val, shadow_model.trainable_weights)
-          shadow_optimizer.apply_gradients(zip(shadow_grads, shadow_model.trainable_weights))
-      shadow_model.save(shadow_model_save_path)
-      total_shadow_epoch += 1
-      if total_shadow_epoch % 1000 == 0:
-        print('Shadow training loss at epoch %s is %s' % (shadow_epoch, float(shadow_loss_val)))
+        for step, (x_batch_train, y_batch_train) in enumerate(batched_shadow_train_dataset):
+          #print(y_batch_train.shape)
+          with tf.GradientTape() as tape:
+            shadow_logits = shadow_model(x_batch_train)
+            shadow_loss_val = shadow_lossfn(y_batch_train, shadow_logits)
+            shadow_grads = tape.gradient(shadow_loss_val, shadow_model.trainable_weights)
+            shadow_optimizer.apply_gradients(zip(shadow_grads, shadow_model.trainable_weights))
+        shadow_model.save(shadow_model_save_path)
+        total_shadow_epoch += 1
+        if total_shadow_epoch % 1000 == 0:
+          print('Shadow training loss at epoch %s is %s' % (shadow_epoch, float(shadow_loss_val)))
