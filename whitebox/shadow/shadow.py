@@ -54,6 +54,7 @@ if __name__ == '__main__':
         l.append(label)
     return len(l)
   num_of_classes_val = num_of_classes(y_train, y_test)
+  normalized_x_test = normalize(x_test)
   y_train = keras.utils.to_categorical(y_train, num_classes=num_of_classes_val)
   y_test = keras.utils.to_categorical(y_test, num_classes=num_of_classes_val)
 
@@ -63,22 +64,24 @@ if __name__ == '__main__':
   res_optimizer = keras.optimizers.Adam(learning_rate=1e-3)
   res_lossfn = keras.losses.CategoricalCrossentropy()
   res_acc = keras.metrics.CategoricalAccuracy()
-  #res_model.summary()
+  res_eva_acc = keras.metrics.CategoricalAccuracy()
+  #res_model.load_weights(res_model_save_path)
+  res_model.summary()
 
-  shadow_input_dim = 1000
+  shadow_input_dim = 100
   # previous model 128 * 3
   shadow_inputs = keras.Input(shape=(shadow_input_dim,), name='shadow_input')
   shadow_res = layers.Dense(64, activation='relu', name='dense_11')(shadow_inputs)
   #shadow_res = layers.Dense(64, activation='relu', name='dense_12')(shadow_res)
   #shadow_res = layers.Dense(128, activation='relu', name='dense_14')(shadow_res)
-  shadow_res = layers.Dense(128, activation='relu', name='dense_13')(shadow_res)
+  shadow_res = layers.Dense(192, activation='relu', name='dense_13')(shadow_res)
   shadow_outputs = layers.Dense(1024, activation='relu', name='predict')(shadow_res)
   shadow_model = keras.Model(inputs=shadow_inputs, outputs=shadow_outputs, name='shadow')
   shadow_optimizer = keras.optimizers.Adam(learning_rate=1e-3)
   shadow_lossfn = keras.losses.MeanSquaredError()
   #shadow_model.summary()  
 
-  shadow_train_size = 500
+  shadow_train_size = 200
   shadow_img_at_same_unit = 2
   shadow_x_train = np.zeros((shadow_train_size, shadow_input_dim), dtype='float32')
   for i in range(shadow_x_train.shape[0]):
@@ -87,7 +90,8 @@ if __name__ == '__main__':
   shadow_y_train = gray(x_train[:shadow_train_size])
   shadow_y_train = (shadow_y_train / 255).reshape(shadow_train_size, 1024)
 
-  res_epochs = 1
+  #res_epochs = 50
+  res_epochs = 20
   res_batch_size = 256
   shadow_epochs = 30000
   shadow_epochs_in_res_epoch = math.ceil(shadow_epochs/res_epochs)
@@ -99,6 +103,7 @@ if __name__ == '__main__':
 
   run_shadow = False
   for res_epoch in range(res_epochs):
+    print("Epoch: %s/%s" % (res_epoch, res_epochs))
     res_progbar = Progbar(x_train.shape[0])
     res_progbar.update(0, values=[('loss', 0.0), ('acc', 0.0)])
     batched_res_train_dataset = res_train_dataset.shuffle(buffer_size=1024).batch(res_batch_size)
@@ -118,7 +123,9 @@ if __name__ == '__main__':
         #   print('Training loss at epoch %s step %s is %s' 
         #     % (res_epoch, step, float(res_loss_val)))
       res_progbar.update((step+1)*res_batch_size, values=[('loss', res_loss_val), ('acc', res_acc_val)])
-    res_model.save(res_model_save_path)
+    #res_model.save(res_model_save_path)
+    res_model.save_weights(res_model_save_path)
+    print("")
 
     if run_shadow:
       for shadow_epoch in range(shadow_epochs_in_res_epoch):

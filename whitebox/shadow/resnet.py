@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/18dBnxZByVQVAX72gdczlrb9BMQcv3Y4M
 """
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Add, Input, Dense, Activation, Flatten
+from tensorflow.keras.layers import Add, Input, Dense, Activation, Flatten, Dropout
 from tensorflow.keras.layers import ZeroPadding2D, Conv2D, MaxPooling2D, BatchNormalization, AveragePooling2D
 from tensorflow.keras.initializers import glorot_uniform
 
@@ -26,7 +26,7 @@ def conv_block(input_tensor, kernel_size, filters, stride, stage):
                         kernel_initializer = glorot_uniform(seed=0))(shortcut)
   res_shortcut = BatchNormalization(axis=3, 
                                     name = s_name + "shortcut_bn")(res_shortcut)
-  res_shortcut = Activation('relu')(res_shortcut)
+  # res_shortcut = Activation('relu')(res_shortcut)
   
   # normal path
   # Block 1
@@ -180,24 +180,26 @@ def ResNet(input_shape, classes):
                  filters = [256, 256, 1024],
                  stage = "4f") 
   
+  
   # stage 5
-  res = conv_block(input_tensor = res,
-                   kernel_size = 3,
-                   filters = [512, 512, 2048],
-                   stride = 2,
-                   stage = "5a")
-  res = id_block(input_tensor = res,
-                kernel_size = 3,
-                filters = [512, 512, 2048],
-                stage = "5b")
-  res = id_block(input_tensor = res,
-                 kernel_size = 3,
-                 filters = [512, 512, 2048],
-                 stage = "5c")
+  # res = conv_block(input_tensor = res,
+  #                  kernel_size = 3,
+  #                  filters = [512, 512, 2048],
+  #                  stride = 2,
+  #                  stage = "5a")
+  # res = id_block(input_tensor = res,
+  #               kernel_size = 3,
+  #               filters = [512, 512, 2048],
+  #               stage = "5b")
+  # res = id_block(input_tensor = res,
+  #                kernel_size = 3,
+  #                filters = [512, 512, 2048],
+  #                stage = "5c")
   res = AveragePooling2D(pool_size=(2,2), 
                          padding='same')(res)
   
   res = Flatten()(res)
+  res = Dropout(0.5)(res)
   res = Dense(classes, 
               activation='softmax', 
               name='output_fc_layer', 
