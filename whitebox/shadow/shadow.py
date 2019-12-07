@@ -43,6 +43,11 @@ if __name__ == '__main__':
     os.mkdir(model_save_dir)
 
   (x_train, y_train), (x_test, y_test) = keras.datasets.cifar10.load_data()
+  #print(x_test)
+  #print(x_test)
+  #exit(0)
+  x_train = tf.cast(x_train / 255, dtype='float32') 
+  x_test = tf.cast(x_test / 255, dtype='float32') 
 
   def num_of_classes(train, test):
     l = []
@@ -54,16 +59,16 @@ if __name__ == '__main__':
         l.append(label)
     return len(l)
   num_of_classes_val = num_of_classes(y_train, y_test)
-  normalized_x_test = normalize(x_test)
   y_train = keras.utils.to_categorical(y_train, num_classes=num_of_classes_val)
   y_test = keras.utils.to_categorical(y_test, num_classes=num_of_classes_val)
 
   res_model = ResNet(
     input_shape = x_train.shape[1:],
     classes = num_of_classes_val)
-  res_optimizer = keras.optimizers.Adam(learning_rate=1e-3)
+  res_optimizer = keras.optimizers.Adam(learning_rate=5e-4)
   res_lossfn = keras.losses.CategoricalCrossentropy()
   res_acc = keras.metrics.CategoricalAccuracy()
+  res_eva_lossfn = keras.losses.CategoricalCrossentropy()
   res_eva_acc = keras.metrics.CategoricalAccuracy()
   #res_model.load_weights(res_model_save_path)
   res_model.summary()
@@ -90,7 +95,7 @@ if __name__ == '__main__':
   shadow_y_train = gray(x_train[:shadow_train_size])
   shadow_y_train = (shadow_y_train / 255).reshape(shadow_train_size, 1024)
 
-  #res_epochs = 50
+  #res_epochs = 100
   res_epochs = 20
   res_batch_size = 256
   shadow_epochs = 30000
@@ -98,6 +103,8 @@ if __name__ == '__main__':
   shadow_batch_size = 100
 
   res_train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+  res_test_dataset = tf.data.Dataset.from_tensor_slices((x_test, y_test))
+  batched_res_test_dataset = res_test_dataset.shuffle(buffer_size=1024).batch(1024)
   shadow_train_dataset = tf.data.Dataset.from_tensor_slices((shadow_x_train, shadow_y_train))
   total_shadow_epoch = 0
 
@@ -109,16 +116,16 @@ if __name__ == '__main__':
     batched_res_train_dataset = res_train_dataset.shuffle(buffer_size=1024).batch(res_batch_size)
 
     for step, (x_batch_train, y_batch_train) in enumerate(batched_res_train_dataset):
-      x_batch_train = normalize(x_batch_train)
+      #x_batch_train = normalize(x_batch_train)
       #x_batch_train = tf.cast(x_batch_train, dtype='float32') 
       with tf.GradientTape() as tape:
         res_logits = res_model(x_batch_train) 
         res_acc.update_state(y_batch_train, res_logits)
         res_acc_val = res_acc.result().numpy()
         res_loss_val = res_lossfn(y_batch_train, res_logits)
-        # print(res_loss_val, res_acc_val)
         res_grads = tape.gradient(res_loss_val, res_model.trainable_weights)
         res_optimizer.apply_gradients(zip(res_grads, res_model.trainable_weights))
+        # print(res_loss_val, res_acc_val)
         # if step % 10 == 0:
         #   print('Training loss at epoch %s step %s is %s' 
         #     % (res_epoch, step, float(res_loss_val)))
@@ -126,6 +133,25 @@ if __name__ == '__main__':
     #res_model.save(res_model_save_path)
     res_model.save_weights(res_model_save_path)
     print("")
+
+    res_eva_acc_val = 0.0
+    res_eva_loss_val = 0.0
+    res_eva_steps = 0
+    for step, (x_batch_test, y_batch_test) in enumerate(batched_res_test_dataset):
+      #x_batch_train = normalize(x_batch_train)
+      #x_batch_test = tf.cast(x_batch_test, dtype='float32') 
+      res_eva_steps += 1
+      res_test_logits = res_model(x_batch_test) 
+      res_eva_acc.update_state(y_batch_test, res_test_logits)
+      res_eva_acc_val = res_eva_acc.result().numpy()
+      res_eva_loss_val = res_eva_lossfn(y_batch_test, res_test_logits)
+      print(res_eva_loss_val, res_eva_acc_val)
+      # if step % 10 == 0:
+      #   print('Training loss at epoch %s step %s is %s' 
+      #     % (res_epoch, step, float(res_loss_val)))
+    #res_eva_acc_val = res_eva_acc_val / res_eva_steps
+    #res_eva_loss_val = res_eva_loss_val / res_eva_steps
+    #print("Res eva in epoch %s, loss %s, acc %s." % (res_epoch, res_eva_acc_val, res_eva_loss_val))
 
     if run_shadow:
       for shadow_epoch in range(shadow_epochs_in_res_epoch):
