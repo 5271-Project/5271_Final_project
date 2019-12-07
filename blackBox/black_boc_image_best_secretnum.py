@@ -70,7 +70,7 @@ def showImg(img, name = ""):
     plt.grid(False)
     plt.show()
     if name!="":
-        fig.savefig(name)
+        fig.savefig("./test_accuracy_force_d/"+name)
 
 model = keras.Sequential([
     keras.layers.Flatten(input_shape=(28, 28)),
@@ -93,9 +93,8 @@ model.fit(x_train,
 
 test_loss, test_acc = model.evaluate(x_test, y_test, verbose=2)
 print('\nTest accuracy:', test_acc)
-secret_num=1
-secret_img = x_train[0:secret_num]
-showImg(secret_img, "original")
+# secret_num=1
+
 
 
 # In[8]:
@@ -135,7 +134,7 @@ def str2bin(strv):
 # In[10]:
 
 
-def getPrimeList(len):   
+def getPrimeList(len):
     list=[]
     i=2
     for i in range (2,len):
@@ -147,7 +146,9 @@ def getPrimeList(len):
             list.append(i)
     return list
 
-def test_accuracy(force, d):
+def test_accuracy(force, d, secret_num):
+    secret_img = x_train[0:secret_num]
+    showImg(secret_img, "original_secretnum_"+str(secret_num))
     def genMal(length, shape = (28, 28), force = force):
         mal_x = np.zeros((length, shape[0], shape[1]))
         p_list = getPrimeList(force)
@@ -217,7 +218,7 @@ def test_accuracy(force, d):
     # In[13]:
 
 
-    secret_num = 1
+    # secret_num = 1
     x_new, y_new, secret_length = augumentAttack(x_train, y_train, 2, secret_num)
 
 
@@ -265,7 +266,7 @@ def test_accuracy(force, d):
     print(len(strv))
     test_s = str2bin(strv)
     ds = decode(test_s)
-    showImg(ds, name = "_".join(["force", str(force), "d", str(d)]))
+    showImg(ds, name = "_".join(["force", str(force), "d", str(d), "secretnum", str(secret_num)]))
 
 
     # In[17]:
@@ -298,13 +299,14 @@ def test_accuracy(force, d):
     # test_loss, test_acc = model.evaluate(x_test, y_test, verbose=2)
     # print('\nTest accuracy:', test_acc)
 
-result = np.zeros([3, 3])
-force_list = [10,15,20]
-d_list = [10,15,20]
-for f in range(3):
-    for d in range(3):
-        result[f,d] = test_accuracy(force_list[f],d_list[d])
+result = np.zeros(9)
+# force_list = [10,15,20]
+# d_list = [10,15,20]
+secret_num_list = range(1, 10)
+for s in range(5,9):
+        result[s] = test_accuracy(10, 20, secret_num_list[s])
+        print(result)
 
-print(result)
+
 
 
