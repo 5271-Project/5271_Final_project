@@ -255,9 +255,9 @@ if __name__ == '__main__':
   shadow_y_train = (shadow_y_train / 255).reshape(shadow_train_size, 1024)
 
   #res_epochs = 100
-  res_epochs = 5
+  res_epochs = 20
   res_batch_size = 256
-  shadow_epochs = 2000
+  shadow_epochs = 20000
   shadow_epochs_in_res_epoch = math.ceil(shadow_epochs/res_epochs)
   shadow_batch_size = 100
 
